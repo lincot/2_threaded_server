@@ -5,7 +5,7 @@ DEFAULT_HOST = '127.0.0.1'
 
 
 def get_host():
-    host = input(f'enter server host ({DEFAULT_HOST}): ')
+    host = input(f'server host ({DEFAULT_HOST}): ')
     if not host:
         return DEFAULT_HOST
     else:

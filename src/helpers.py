@@ -23,7 +23,7 @@ DEFAULT_PORT = 9090
 
 
 def get_port() -> int:
-    port = input(f'enter server port ({DEFAULT_PORT}): ')
+    port = input(f'server port ({DEFAULT_PORT}): ')
     if not port:
         return DEFAULT_PORT
     else:

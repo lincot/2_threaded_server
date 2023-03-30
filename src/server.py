@@ -8,6 +8,30 @@ from threading import Thread, Event
 
 
 class Server:
+    def __init__(self):
+        self.sock = MySocket()
+        self.auth_conns = set()
+
+        try:
+            self.sock.bind(('', get_port()))
+        except OSError as e:
+            if e.errno == errno.EADDRINUSE:
+                print('port is not available, using a free port')
+                self.sock.bind(('', 0))
+            else:
+                raise e
+        self.log('server started')
+
+        self.sock.listen()
+        print(f'listening on port {self.sock.getsockname()[1]}')
+
+        self.passwords_db = shelve.open('passwords')
+        self.session_tokens_db = shelve.open('session_tokens')
+
+    def log(self, *values):
+        with open('server.log', 'a') as f:
+            print(*values, file=f)
+
     def authenticate(self, conn) -> bool:
         def greet(name):
             return b'hello ' + name.encode() + b'\n'
@@ -59,9 +83,14 @@ class Server:
             return
 
         self.auth_conns.add(conn)
+        conn.settimeout(1)
 
-        while True:
-            msg = conn.recv()
+        while not self.exit_event.is_set():
+            self.pause_event.wait()
+            try:
+                msg = conn.recv()
+            except TimeoutError:
+                continue
             if msg is None:
                 self.log(f'disconnected {addr}')
                 self.auth_conns.remove(conn)
@@ -73,54 +102,29 @@ class Server:
                     user.sendall(name.encode() + b': ' + msg + b'\n')
 
     def accept_loop(self):
-        self.accept_loop_stop_event = Event()
-        self.accept_loop_pause_event = Event()
-        self.accept_loop_pause_event.set()
-        while not self.accept_loop_stop_event.is_set():
-            self.accept_loop_pause_event.wait()
-            self.sock.settimeout(1)
+        self.exit_event = Event()
+        self.pause_event = Event()
+        self.pause_event.set()
+        self.sock.settimeout(1)
+        while not self.exit_event.is_set():
+            self.pause_event.wait()
             try:
                 conn, addr = self.sock.accept()
             except TimeoutError:
                 continue
-            self.sock.settimeout(0)
             self.log(f'connected client {addr}')
             Thread(target=self.handle_connection, args=[conn, addr]).start()
-
-    def log(self, *values):
-        with open('server.log', 'a') as f:
-            print(*values, file=f)
-
-    def __init__(self):
-        self.sock = MySocket()
-        self.auth_conns = set()
-
-        try:
-            self.sock.bind(('', get_port()))
-        except OSError as e:
-            if e.errno == errno.EADDRINUSE:
-                print('port is not available, using a free port')
-                self.sock.bind(('', 0))
-            else:
-                raise e
-        self.log('server started')
-
-        self.sock.listen()
-        print(f'listening on port {self.sock.getsockname()[1]}')
-
-        self.passwords_db = shelve.open('passwords')
-        self.session_tokens_db = shelve.open('session_tokens')
 
     def input_loop(self):
         while True:
             command = input('> ')
             if command == 'exit':
-                self.accept_loop_stop_event.set()
+                self.exit_event.set()
                 return
             elif command == 'pause':
-                self.accept_loop_pause_event.clear()
+                self.pause_event.clear()
             elif command == 'unpause':
-                self.accept_loop_pause_event.set()
+                self.pause_event.set()
             elif command == 'show-logs':
                 with open('server.log') as f:
                     print(f.read())
@@ -136,7 +140,7 @@ class Server:
 def main():
     server = Server()
     Thread(target=server.accept_loop).start()
-    Thread(target=server.input_loop).start()
+    server.input_loop()
 
 
 if __name__ == '__main__':
